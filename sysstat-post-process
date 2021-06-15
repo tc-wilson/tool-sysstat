@@ -504,7 +504,52 @@ for my $log_file (sort readdir($dh)) {
             exit;
             }
         }
-    }
+    } elsif ($log_file =~ /^iostat-stdout.txt$/) {
+	my $log_fh = $log_file;
+        open(TMP,"$log_fh") || die "Could not open $log_fh\n";
+        my $separator = $/;
+        $/ = '';
+        my $ymd_timestamp_ms; # Epochtime in milliseconds
+
+        while (my($timestamp, $header, @devicelines) = split('\n', <TMP>)) {
+            foreach my $device_entry (@devicelines) {
+		my %iosample;
+                my $iodev = (split ' ', ${device_entry})[0];
+                (my $unused,
+                $iosample{$iodev}{'reads-sec'},
+                $iosample{$iodev}{'writes-sec'},
+                $iosample{$iodev}{'read-kb-sec'},
+                $iosample{$iodev}{'write-kb-sec'},
+                $iosample{$iodev}{'reads-merged-sec'},
+                $iosample{$iodev}{'writes-merged-sec'},
+                $iosample{$iodev}{'read-pct-merged'},
+                $iosample{$iodev}{'write-pct-merged'},
+                $iosample{$iodev}{'read-wait-avg-ms'},
+                $iosample{$iodev}{'write-wait-avg-ms'},
+                $iosample{$iodev}{'avg-queue-len'},
+                $iosample{$iodev}{'avg-read-req-size'},
+                $iosample{$iodev}{'avg-write-req-size'},
+		my $deprecated,
+                $iosample{$iodev}{'percent-utilization'}) = split(' ', $device_entry);
+
+		$ymd_timestamp_ms = `date +%s%N -d $timestamp -u` / 1000000;
+                my %sample = ('end' => $ymd_timestamp_ms);
+		my %desc;
+
+                foreach my $device_name (keys %iosample) {
+                    foreach my $field (keys %{$iosample{$device_name}}) {  
+                        $sample{'value'} = $iosample{$device_name}{$field};
+			$desc{'type'} = $field;
+			$desc{'source'} = "iostat";
+                        my %names = ('dev' => $device_name);
+                        log_sample("iostat", \%desc, \%names, \%sample);
+                    }
+                }
+            }
+        }
+      $/ = $separator;
+      close(TMP);
+      }
 }
 printf "Waiting for %d post-processing jobs to complete\n", scalar @pids + @mpstat_pids;
 while (wait() > -1) {}
